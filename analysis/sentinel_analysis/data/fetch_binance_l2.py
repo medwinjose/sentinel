@@ -37,6 +37,46 @@ def fetch_recent_trades(symbol: str, limit: int = 1000) -> list[dict[str, Any]]:
     return response.json()
 
 
+def fetch_trades_paginated(
+    symbol: str, target_count: int = 5000
+) -> list[dict[str, Any]]:
+    """Fetch target_count consecutive trade events from Binance using aggTrades pagination."""
+    if target_count <= 1000:
+        return fetch_recent_trades(symbol, limit=target_count)
+
+    url = f"{BINANCE_API_BASE}/api/v3/aggTrades"
+    latest_resp = requests.get(
+        url, params={"symbol": symbol.upper(), "limit": 1000}, timeout=10
+    )
+    latest_resp.raise_for_status()
+    latest_trades = latest_resp.json()
+
+    if not latest_trades:
+        return []
+
+    max_a = latest_trades[-1]["a"]
+    start_a = max(0, max_a - target_count + 1)
+    all_trades = []
+
+    current_a = start_a
+    while len(all_trades) < target_count:
+        fetch_len = min(1000, target_count - len(all_trades))
+        resp = requests.get(
+            url,
+            params={"symbol": symbol.upper(), "fromId": current_a, "limit": fetch_len},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            break
+        chunk = resp.json()
+        if not chunk:
+            break
+        all_trades.extend(chunk)
+        current_a = chunk[-1]["a"] + 1
+
+    return all_trades[:target_count]
+
+
 def generate_mock_l2_data(symbol: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Generate synthetic mock L2 depth + trade data for offline dry-run testing."""
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -68,6 +108,7 @@ def fetch_l2_data(
     raw_dir: Path | None = None,
     dry_run: bool = False,
     limit: int = 1000,
+    num_trades: int = 1000,
 ) -> tuple[Path, Path, dict[str, Any], list[dict[str, Any]]]:
     """Fetch depth & trade data for a symbol and save raw output locally.
 
@@ -91,7 +132,10 @@ def fetch_l2_data(
             depth_data, trades_data = generate_mock_l2_data(symbol)
     else:
         depth_data = fetch_depth_snapshot(symbol, limit=fetch_limit)
-        trades_data = fetch_recent_trades(symbol, limit=fetch_limit)
+        if num_trades > 1000:
+            trades_data = fetch_trades_paginated(symbol, target_count=num_trades)
+        else:
+            trades_data = fetch_recent_trades(symbol, limit=num_trades)
 
     timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     prefix = f"{symbol.lower()}_{timestamp_str}"
@@ -119,6 +163,9 @@ def main():
         "--dry-run", action="store_true", help="Perform dry-run fetch test"
     )
     parser.add_argument(
+        "--num-trades", type=int, default=1000, help="Number of trade events to fetch"
+    )
+    parser.add_argument(
         "--out-dir", type=str, default=None, help="Directory for raw data output"
     )
     args = parser.parse_args()
@@ -128,6 +175,7 @@ def main():
         symbol=args.symbol,
         raw_dir=raw_dir,
         dry_run=args.dry_run,
+        num_trades=args.num_trades,
     )
 
     print(f"Fetch completed successfully (dry_run={args.dry_run}):")

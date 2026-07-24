@@ -45,15 +45,15 @@ def preprocess_l2_data(
     max_trade_time = float("-inf")
 
     for trade in trades_data:
-        t_ms = float(trade.get("time", 0))
+        t_ms = float(trade.get("time", trade.get("T", 0)))
         if t_ms > 0:
             min_trade_time = min(min_trade_time, t_ms)
             max_trade_time = max(max_trade_time, t_ms)
 
-        price = float(trade.get("price", 0.0))
-        qty = float(trade.get("qty", trade.get("quantity", 0.0)))
-        # isBuyerMaker True -> trade executed at bid (seller aggressive) -> side 'ask' / 'sell'
-        is_buyer_maker = trade.get("isBuyerMaker", False)
+        price = float(trade.get("price", trade.get("p", 0.0)))
+        qty = float(trade.get("qty", trade.get("quantity", trade.get("q", 0.0))))
+        # isBuyerMaker / m: True -> trade executed at bid (seller aggressive) -> side 'ask' / 'sell'
+        is_buyer_maker = trade.get("isBuyerMaker", trade.get("m", False))
         side = "ask" if is_buyer_maker else "bid"
 
         events.append(
@@ -176,6 +176,12 @@ def main():
     parser.add_argument(
         "--symbol", type=str, default="BTCUSDT", help="Trading pair symbol"
     )
+    parser.add_argument(
+        "--version",
+        type=str,
+        default="v2",
+        help="Version identifier for parquet output",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Mark output as dry-run")
     parser.add_argument("--seed", type=int, default=None, help="Optional RNG seed")
     args = parser.parse_args()
@@ -207,6 +213,7 @@ def main():
         depth_data=depth_data,
         trades_data=trades_data,
         symbol=args.symbol,
+        version=args.version,
         dry_run=args.dry_run,
         seed=args.seed,
     )
