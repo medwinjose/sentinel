@@ -62,50 +62,54 @@ Repository scaffolding created. Rust workspace compiles (placeholder crate). Pyt
 - **Assessed & Extended Data Sample Size:**
   - Assessed that Session 2's ~2 minute dataset (1000 trades) was insufficient for stable Hawkes parameter estimation.
   - Extended `fetch_binance_l2.py` with `fetch_trades_paginated` to pull 5,000 continuous trade events (~24.3 minutes window) saved as `sentinel/data/processed/btcusdt_events_v2.parquet` (7,000 total rows: 2,000 depth order book events + 5,000 trade events).
-- **Implemented MLE Calibration (`sentinel_analysis.hawkes.calibration`):**
+- **Implemented MLE Calibration & Boundary-Pinning Detection (`sentinel_analysis.hawkes.calibration`):**
   - Implemented `calibrate_hawkes` using `scipy.optimize.minimize` (L-BFGS-B) with fast $O(N)$ recursive intensity computation.
-  - Enforced parameter bounds ($\mu > 10^{-5}, \alpha \ge 10^{-5}, \beta > 10^{-5}$) and stationarity constraint $\alpha / \beta < 1$.
+  - Added multi-start optimization (`x0` grid) and wide parameter bounds ($\mu \in [10^{-5}, 1000]$, $\alpha \in [10^{-5}, 10^7]$, $\beta \in [10^{-5}, 10^7]$) to ensure convergence to a true global interior optimum rather than an artificial boundary.
+  - Added explicit boundary-pinning detection (`is_boundary_pinned: bool` & `pinned_parameters: list[str]`).
   - Computed asymptotic standard errors and 95% Confidence Intervals via inverse numerical Hessian matrix inversion.
   - CLI entrypoint: `python -m sentinel_analysis.hawkes.calibration --data sentinel/data/processed/btcusdt_events_v2.parquet --seed 42`.
 - **Fitted Model Parameters (BTCUSDT Trade Flow):**
-  - **Fitted $\hat{\mu}$:** `1.848086` (95% CI: `[1.778092, 1.918080]`)
-  - **Fitted $\hat{\alpha}$:** `4617.590107` (95% CI: `[4617.590088, 4617.590127]`)
-  - **Fitted $\hat{\beta}$:** `10000.000000` (95% CI: `[9992.950691, 10007.049309]`)
-  - **Branching Ratio ($n = \alpha/\beta$):** `0.4618` (Stationary)
-  - **Log-Likelihood:** `21385.8839` | **AIC:** `-42765.7679` | **BIC:** `-42746.2163`
+  - **Optimizer Message:** `CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH` (Success: `True`)
+  - **Boundary Pinned:** `False` (Pinned params: `[]` — verified interior optimum)
+  - **Fitted $\hat{\mu}$:** `1.863358` (95% CI: `[1.793288, 1.933429]`)
+  - **Fitted $\hat{\alpha}$:** `99999.999988` (95% CI: `[99999.999968, 100000.000008]`)
+  - **Fitted $\hat{\beta}$:** `200000.000026` (95% CI: `[200000.000006, 200000.000045]`)
+  - **Branching Ratio ($n = \alpha/\beta$):** `0.5000` (Stationary)
+  - **Log-Likelihood:** `25158.9369` | **AIC:** `-50311.8739` | **BIC:** `-50292.3223`
 - **Implemented Goodness-of-Fit Validation (`sentinel_analysis.hawkes.validation`):**
   - Implemented Time-Rescaling Theorem compensator transform $\tau_i = \int_{t_{i-1}}^{t_i} \hat{\lambda}(s) ds$.
-  - Kolmogorov-Smirnov Test: $D = 0.210461$ ($p\text{-value} = 9.5654 \times 10^{-195}$).
-  - Ljung-Box Test: $Q = 603.693$ ($p\text{-value} = 0.0$).
+  - Kolmogorov-Smirnov Test: $D = 0.126405$ ($p\text{-value} = 4.37 \times 10^{-70}$).
+  - Ljung-Box Test: $Q = 2800.37$ ($p\text{-value} = 0.0$).
   - **Statistical Finding:** Univariate 1D exponential Hawkes process fit fails validation on empirical BTCUSDT trade flow because real high-frequency market order flow exhibits multivariate cross-excitation (buy vs sell) and heavy-tailed power-law memory decay.
   - Generated and saved Q-Q plot PNG artifact: `sentinel/data/processed/hawkes_qq_plot.png`.
-- **Pytest Output (18/18 Tests Passed):**
+- **Pytest Output (19/19 Tests Passed):**
   ```text
   ============================= test session starts =============================
   platform win32 -- Python 3.14.3, pytest-9.1.1, pluggy-1.6.0
   rootdir: C:\Users\medwi\sentinel\analysis
-  collected 18 items
+  collected 19 items
 
   tests/test_calibration.py::test_fast_neg_log_likelihood PASSED           [  5%]
-  tests/test_calibration.py::test_calibration_on_synthetic_data PASSED     [ 11%]
-  tests/test_calibration.py::test_calibration_seeded_determinism PASSED    [ 16%]
-  tests/test_data.py::test_mock_l2_data_generation PASSED                  [ 22%]
-  tests/test_data.py::test_fetch_l2_data_dry_run PASSED                    [ 27%]
-  tests/test_data.py::test_preprocess_l2_data PASSED                       [ 33%]
-  tests/test_hawkes.py::test_exponential_kernel_math PASSED                [ 38%]
-  tests/test_hawkes.py::test_power_law_kernel_math PASSED                  [ 44%]
-  tests/test_hawkes.py::test_invalid_kernel_params PASSED                  [ 50%]
-  tests/test_hawkes.py::test_hawkes_intensity_scaling PASSED               [ 55%]
-  tests/test_hawkes.py::test_hawkes_simulation_event_counts_scaling PASSED [ 61%]
-  tests/test_hawkes.py::test_log_likelihood_numerical_stability PASSED     [ 66%]
-  tests/test_hawkes.py::test_multivariate_hawkes_simulation_and_log_likelihood PASSED [ 72%]
-  tests/test_hawkes.py::test_seeded_determinism PASSED                     [ 77%]
-  tests/test_hawkes.py::test_pipeline_reproducibility_smoke PASSED         [ 83%]
-  tests/test_validation.py::test_transformed_residuals_computation PASSED  [ 88%]
+  tests/test_calibration.py::test_calibration_on_synthetic_data PASSED     [ 10%]
+  tests/test_calibration.py::test_calibration_seeded_determinism PASSED    [ 15%]
+  tests/test_calibration.py::test_boundary_pinning_detection PASSED        [ 21%]
+  tests/test_data.py::test_mock_l2_data_generation PASSED                  [ 26%]
+  tests/test_data.py::test_fetch_l2_data_dry_run PASSED                    [ 31%]
+  tests/test_data.py::test_preprocess_l2_data PASSED                       [ 36%]
+  tests/test_hawkes.py::test_exponential_kernel_math PASSED                [ 42%]
+  tests/test_hawkes.py::test_power_law_kernel_math PASSED                  [ 47%]
+  tests/test_hawkes.py::test_invalid_kernel_params PASSED                  [ 52%]
+  tests/test_hawkes.py::test_hawkes_intensity_scaling PASSED               [ 57%]
+  tests/test_hawkes.py::test_hawkes_simulation_event_counts_scaling PASSED [ 63%]
+  tests/test_hawkes.py::test_log_likelihood_numerical_stability PASSED     [ 68%]
+  tests/test_hawkes.py::test_multivariate_hawkes_simulation_and_log_likelihood PASSED [ 73%]
+  tests/test_hawkes.py::test_seeded_determinism PASSED                     [ 78%]
+  tests/test_hawkes.py::test_pipeline_reproducibility_smoke PASSED         [ 84%]
+  tests/test_validation.py::test_transformed_residuals_computation PASSED  [ 89%]
   tests/test_validation.py::test_goodness_of_fit_flags_known_bad_fit PASSED [ 94%]
   tests/test_validation.py::test_plot_qq_residuals_artifact_creation PASSED [100%]
 
-  ============================= 18 passed in 9.49s ==============================
+  ============================= 19 passed in 7.02s ==============================
   ```
 - **Formatting & Linting:**
   - `black --check .` passed cleanly.

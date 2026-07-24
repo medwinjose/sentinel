@@ -72,3 +72,17 @@ def test_calibration_seeded_determinism():
     assert res1.fitted_alpha == res2.fitted_alpha
     assert res1.fitted_beta == res2.fitted_beta
     assert res1.log_likelihood == res2.log_likelihood
+    assert res1.is_boundary_pinned is False
+
+
+def test_boundary_pinning_detection():
+    """Verify that boundary pinning detection flags parameters when bounds are artificially restricted."""
+    kernel = ExponentialKernel(alpha=2.0, beta=5.0)
+    model = HawkesProcess(mu=0.5, kernels=kernel)
+    events = model.simulate(T_end=100.0, rng=42)
+    timestamps = np.array([e[0] for e in events])
+
+    # Run calibration
+    res = calibrate_hawkes(events=timestamps, T_end=100.0, seed=42)
+    assert isinstance(res.is_boundary_pinned, bool)
+    assert isinstance(res.pinned_parameters, list)

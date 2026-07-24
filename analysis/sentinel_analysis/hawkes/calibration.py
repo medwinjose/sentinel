@@ -34,6 +34,8 @@ class HawkesCalibrationResult:
     alpha_ci_95: tuple[float, float]
     beta_ci_95: tuple[float, float]
     convergence_success: bool
+    is_boundary_pinned: bool
+    pinned_parameters: list[str]
     optimizer_status: int
     optimizer_message: str
     n_evaluations: int
@@ -182,36 +184,63 @@ def calibrate_hawkes(
 
     # Deterministic initial parameter estimation
     if initial_guess is not None:
-        init_p = np.array(initial_guess, dtype=np.float64)
+        np.array(initial_guess, dtype=np.float64)
     else:
         # Heuristic initial guess based on event rate
         mean_rate = N / duration
-        init_mu = max(0.1, mean_rate * 0.4)
-        init_alpha = 0.3
-        init_beta = 1.0
-        init_p = np.array([init_mu, init_alpha, init_beta])
 
-    # Parameter bounds: mu > 1e-5, alpha >= 1e-5, beta > 1e-5
+    # Wide parameter bounds allowing high-frequency interior decay search
     bounds = [
-        (1e-5, max(100.0, mean_rate * 10.0)),
-        (1e-5, 5000.0),
-        (1e-5, 10000.0),
+        (1e-5, max(1000.0, mean_rate * 20.0)),
+        (1e-5, 1e7),
+        (1e-5, 1e7),
     ]
 
-    # Perform MLE optimization with L-BFGS-B
-    res = minimize(
-        fun=fast_hawkes_neg_log_likelihood,
-        x0=init_p,
-        args=(event_times, duration),
-        method="L-BFGS-B",
-        bounds=bounds,
-        options={"maxiter": 500, "ftol": 1e-9},
-    )
+    # Multi-start initial guesses for global interior convergence
+    if initial_guess is not None:
+        guesses = [np.array(initial_guess, dtype=np.float64)]
+    else:
+        init_mu = max(0.1, mean_rate * 0.4)
+        guesses = [
+            np.array([init_mu, 10.0, 20.0]),
+            np.array([init_mu, 1000.0, 2000.0]),
+            np.array([init_mu, 100000.0, 200000.0]),
+        ]
+
+    best_res = None
+    best_nll = float("inf")
+
+    for x0 in guesses:
+        res = minimize(
+            fun=fast_hawkes_neg_log_likelihood,
+            x0=x0,
+            args=(event_times, duration),
+            method="L-BFGS-B",
+            bounds=bounds,
+            options={"maxiter": 500, "ftol": 1e-9},
+        )
+        if res.fun < best_nll:
+            best_nll = float(res.fun)
+            best_res = res
+
+    res = best_res
 
     fitted_mu, fitted_alpha, fitted_beta = res.x
     branching_ratio = fitted_alpha / fitted_beta if fitted_beta > 0 else 0.0
     neg_ll = float(res.fun)
     log_likelihood = -neg_ll
+
+    # Check if any parameter sits near optimization boundaries (within 0.01% of bound)
+    param_names = ["mu", "alpha", "beta"]
+    pinned_parameters = []
+    for i, name in enumerate(param_names):
+        val = float(res.x[i])
+        b_low, b_high = bounds[i]
+        if abs(val - b_low) <= 1e-4 * max(1.0, b_low) or abs(
+            val - b_high
+        ) <= 1e-4 * max(1.0, b_high):
+            pinned_parameters.append(name)
+    is_boundary_pinned = len(pinned_parameters) > 0
 
     # Compute AIC / BIC
     k = 3  # parameters: mu, alpha, beta
@@ -238,6 +267,8 @@ def calibrate_hawkes(
         alpha_ci_95=(float(cis[1, 0]), float(cis[1, 1])),
         beta_ci_95=(float(cis[2, 0]), float(cis[2, 1])),
         convergence_success=bool(res.success),
+        is_boundary_pinned=is_boundary_pinned,
+        pinned_parameters=pinned_parameters,
         optimizer_status=int(res.status),
         optimizer_message=str(res.message),
         n_evaluations=int(res.nfev),
@@ -344,6 +375,9 @@ def main():
     print("\nCalibration Results:")
     print(
         f"  Convergence Status : {result.convergence_success} ({result.optimizer_message})"
+    )
+    print(
+        f"  Boundary Pinned    : {result.is_boundary_pinned} (Pinned params: {result.pinned_parameters})"
     )
     print(
         f"  Fitted Mu          : {result.fitted_mu:.6f} (95% CI: [{result.mu_ci_95[0]:.6f}, {result.mu_ci_95[1]:.6f}])"
