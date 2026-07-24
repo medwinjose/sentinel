@@ -1,0 +1,34 @@
+# Rust
+/engine/target/
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Data (ignore raw/processed dumps, keep .gitkeep)
+data/*
+!data/.gitkeep
+
+# Environments & IDEs
+.env
+.env.*
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Monitoring / Containers persistent data
+monitoring/grafana_data/
+monitoring/prometheus_data/
