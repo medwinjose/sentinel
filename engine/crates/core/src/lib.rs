@@ -1,11 +1,2 @@
-pub fn placeholder() {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_placeholder() {
-        placeholder();
-    }
-}
+pub mod book;
+pub mod order;

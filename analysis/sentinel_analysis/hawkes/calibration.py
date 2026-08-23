@@ -39,6 +39,9 @@ class HawkesCalibrationResult:
     optimizer_status: int
     optimizer_message: str
     n_evaluations: int
+    is_degenerate: bool = False
+    degeneracy_reason: str | None = None
+    duplicate_timestamp_ratio: float = 0.0
     ci_method: str = "asymptotic_hessian"
 
     def to_dict(self) -> dict[str, Any]:
@@ -98,47 +101,52 @@ def compute_hessian_standard_errors(
     params: np.ndarray,
     event_times: np.ndarray,
     T_end: float,
-    h: float = 1e-5,
+    h_rel: float = 1e-4,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute standard errors and 95% CIs from numerical Hessian matrix inverse."""
+    """Compute standard errors and 95% CIs from numerical Hessian matrix inverse,
+    using relative parameter-scaled finite differencing step sizes.
+    """
     n_params = len(params)
     hessian = np.zeros((n_params, n_params), dtype=np.float64)
+    h_vec = h_rel * np.maximum(1.0, np.abs(params))
 
     # Compute numerical Hessian via central finite differences of neg_log_likelihood
     for i in range(n_params):
         for j in range(i, n_params):
             if i == j:
+                hi = h_vec[i]
                 p_plus = np.copy(params)
                 p_minus = np.copy(params)
-                p_plus[i] += h
-                p_minus[i] -= h
+                p_plus[i] += hi
+                p_minus[i] -= hi
 
                 f_plus = fast_hawkes_neg_log_likelihood(p_plus, event_times, T_end)
                 f_0 = fast_hawkes_neg_log_likelihood(params, event_times, T_end)
                 f_minus = fast_hawkes_neg_log_likelihood(p_minus, event_times, T_end)
 
-                hessian[i, i] = (f_plus - 2.0 * f_0 + f_minus) / (h**2)
+                hessian[i, i] = (f_plus - 2.0 * f_0 + f_minus) / (hi**2)
             else:
+                hi, hj = h_vec[i], h_vec[j]
                 p_pp = np.copy(params)
                 p_pm = np.copy(params)
                 p_mp = np.copy(params)
                 p_mm = np.copy(params)
 
-                p_pp[i] += h
-                p_pp[j] += h
-                p_pm[i] += h
-                p_pm[j] -= h
-                p_mp[i] -= h
-                p_mp[j] += h
-                p_mm[i] -= h
-                p_mm[j] -= h
+                p_pp[i] += hi
+                p_pp[j] += hj
+                p_pm[i] += hi
+                p_pm[j] -= hj
+                p_mp[i] -= hi
+                p_mp[j] += hj
+                p_mm[i] -= hi
+                p_mm[j] -= hj
 
                 f_pp = fast_hawkes_neg_log_likelihood(p_pp, event_times, T_end)
                 f_pm = fast_hawkes_neg_log_likelihood(p_pm, event_times, T_end)
                 f_mp = fast_hawkes_neg_log_likelihood(p_mp, event_times, T_end)
                 f_mm = fast_hawkes_neg_log_likelihood(p_mm, event_times, T_end)
 
-                hessian[i, j] = (f_pp - f_pm - f_mp + f_mm) / (4.0 * h**2)
+                hessian[i, j] = (f_pp - f_pm - f_mp + f_mm) / (4.0 * hi * hj)
                 hessian[j, i] = hessian[i, j]
 
     try:
@@ -182,6 +190,22 @@ def calibrate_hawkes(
     t_max = float(event_times[-1])
     duration = T_end if T_end is not None else max(t_max, 1.0)
 
+    # Check for timestamp resolution limits and duplicate timestamps
+    diffs = np.diff(event_times)
+    near_zero_count = int(np.sum(diffs < 1.1e-6))
+    duplicate_ratio = float(near_zero_count / len(diffs)) if len(diffs) > 0 else 0.0
+
+    is_degenerate = False
+    degeneracy_reason = None
+
+    if duplicate_ratio > 0.05:
+        is_degenerate = True
+        degeneracy_reason = (
+            f"The exponential Hawkes kernel cannot resolve self-excitation timescales below the 1ms data resolution "
+            f"({duplicate_ratio * 100:.2f}% duplicate millisecond timestamps). "
+            f"Fitted decay beta is driven entirely by within-cluster micro-jitter."
+        )
+
     # Deterministic initial parameter estimation
     if initial_guess is not None:
         np.array(initial_guess, dtype=np.float64)
@@ -192,8 +216,8 @@ def calibrate_hawkes(
     # Wide parameter bounds allowing high-frequency interior decay search
     bounds = [
         (1e-5, max(1000.0, mean_rate * 20.0)),
-        (1e-5, 1e7),
-        (1e-5, 1e7),
+        (1e-5, 1e8),
+        (1e-5, 1e8),
     ]
 
     # Multi-start initial guesses for global interior convergence
@@ -205,6 +229,7 @@ def calibrate_hawkes(
             np.array([init_mu, 10.0, 20.0]),
             np.array([init_mu, 1000.0, 2000.0]),
             np.array([init_mu, 100000.0, 200000.0]),
+            np.array([init_mu, 3000000.0, 6000000.0]),
         ]
 
     best_res = None
@@ -272,11 +297,14 @@ def calibrate_hawkes(
         optimizer_status=int(res.status),
         optimizer_message=str(res.message),
         n_evaluations=int(res.nfev),
+        is_degenerate=is_degenerate,
+        degeneracy_reason=degeneracy_reason,
+        duplicate_timestamp_ratio=duplicate_ratio,
     )
 
 
 def load_event_stream_parquet(
-    data_path: Path, filter_trades_only: bool = True
+    data_path: Path, filter_trades_only: bool = True, seed: int = 42
 ) -> np.ndarray:
     """Load preprocessed Parquet file and extract point event timestamp array."""
     df = pd.read_parquet(data_path)
@@ -296,11 +324,12 @@ def load_event_stream_parquet(
 
     timestamps = np.sort(df_filtered["timestamp"].values.astype(np.float64))
 
-    # De-duplicate identical timestamps by adding microsecond jitter for point process estimation
+    # De-duplicate identical timestamps using seeded random microsecond jitter
     n = len(timestamps)
     if n > 1:
-        jitter = np.arange(n, dtype=np.float64) * 1e-6
-        timestamps = timestamps + jitter
+        rng = np.random.default_rng(seed)
+        jitter = rng.uniform(0.0, 1e-6, size=n)
+        timestamps = np.sort(timestamps + jitter)
 
     return timestamps
 
@@ -339,7 +368,7 @@ def main():
         data_path = v2_files[-1] if v2_files else parquet_files[-1]
 
     print(f"Loading event stream from: {data_path}")
-    event_times = load_event_stream_parquet(data_path)
+    event_times = load_event_stream_parquet(data_path, seed=args.seed)
 
     print(
         f"Calibrating Hawkes Process (N={len(event_times)} events, Seed={args.seed})..."

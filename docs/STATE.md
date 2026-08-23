@@ -1,10 +1,10 @@
 # SENTINEL Current State
 
-**Last Updated:** Session 3 (2026-07-25)
+**Last Updated:** Session 4 (2026-08-23)
 
 ## What Exists
 - Monorepo directory structure (`engine/`, `analysis/`, `monitoring/`, `data/`, `docs/`).
-- Rust workspace root (`engine/`) containing placeholder crate `sentinel-core` (`src/lib.rs` with `pub fn placeholder() {}`).
+- Rust workspace root (`engine/`) containing the LOB core matching engine crate `sentinel-core` (implements price-time priority matching, order placement, robust cancellation, partial/full fills; 7/7 unit tests passing, zero clippy warnings, zero unwrap in library code).
 - Python package (`analysis/`) configured with `pyproject.toml` (`sentinel-analysis` v0.1.0) with dependencies (`matplotlib`, `numpy`, `pandas`, `pyarrow`, `requests`, `scipy`, `pytest`, `black`, `ruff`).
 - Binance L2 Data Pipeline (`sentinel_analysis.data`):
   - Data fetcher (`fetch_binance_l2.py`) supporting paginated `aggTrades` fetching (5,000 trades / ~24.3 min sample window).
@@ -20,15 +20,14 @@
 - Session continuity documentation (`docs/PROGRESS.md`, `docs/STATE.md`).
 
 ## What Does Not Exist
-- Limit Order Book (LOB) engine or order matching logic in Rust (`engine/`).
 - 3-agent market ecology (noise trader, informed trader, spoofer).
 - Trust and toxicity scoring engine.
 - Avellaneda-Stoikov market maker baseline implementation.
 - Metric scraping & dashboards in Grafana/Prometheus (scaffold only).
 
-## Next Session Plan (Session 4)
-- **Goal:** High-Performance Limit Order Book (LOB) Core in Rust (`engine/`).
-- **Expected Build:** Implement matching engine data structures (price-time priority order book, bid/ask price trees/skip-lists, order placement, cancellation, trade execution events) in Rust with microsecond benchmarking.
+## Next Session Plan (Session 5)
+- **Goal:** Wiring Hawkes-driven order arrivals for the noise trader agent against the LOB core.
+- **Expected Build:** Connect the Python Hawkes process calibration and simulation layer to the Rust matching engine, effectively driving the LOB with realistic synthetic order flow.
 
 ## Open Decisions & Risks
 - **Empirical Model Validation:** Univariate 1D exponential Hawkes process fails i.i.d. exponential residual tests ($p < 0.001$) on empirical crypto trade flow due to buy/sell cross-excitation and power-law memory decay. Future calibration work may incorporate 2D (buy/sell) multivariate kernels or power-law decay.

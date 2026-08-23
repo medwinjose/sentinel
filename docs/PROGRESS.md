@@ -62,20 +62,22 @@ Repository scaffolding created. Rust workspace compiles (placeholder crate). Pyt
 - **Assessed & Extended Data Sample Size:**
   - Assessed that Session 2's ~2 minute dataset (1000 trades) was insufficient for stable Hawkes parameter estimation.
   - Extended `fetch_binance_l2.py` with `fetch_trades_paginated` to pull 5,000 continuous trade events (~24.3 minutes window) saved as `sentinel/data/processed/btcusdt_events_v2.parquet` (7,000 total rows: 2,000 depth order book events + 5,000 trade events).
-- **Implemented MLE Calibration & Boundary-Pinning Detection (`sentinel_analysis.hawkes.calibration`):**
+- **Implemented MLE Calibration, Standing Degeneracy Detection & Parameter-Scaled Hessian (`sentinel_analysis.hawkes.calibration`):**
   - Implemented `calibrate_hawkes` using `scipy.optimize.minimize` (L-BFGS-B) with fast $O(N)$ recursive intensity computation.
-  - Added multi-start optimization (`x0` grid) and wide parameter bounds ($\mu \in [10^{-5}, 1000]$, $\alpha \in [10^{-5}, 10^7]$, $\beta \in [10^{-5}, 10^7]$) to ensure convergence to a true global interior optimum rather than an artificial boundary.
-  - Added explicit boundary-pinning detection (`is_boundary_pinned: bool` & `pinned_parameters: list[str]`).
-  - Computed asymptotic standard errors and 95% Confidence Intervals via inverse numerical Hessian matrix inversion.
+  - Added multi-start optimization (`x0` grid) and wide parameter bounds.
+  - Added explicit boundary-pinning detection (`is_boundary_pinned: bool` & `pinned_parameters: list[str]`) and standing timestamp resolution degeneracy detection (`is_degenerate: bool`, `duplicate_timestamp_ratio: float`).
+  - Fixed finite-differencing Hessian step size to be parameter-scaled ($h_i = 10^{-4} \cdot \max(1.0, |p_i|)$), replacing unscaled fixed $h = 10^{-5}$ which caused float64 cancellation artifacts.
+  - Replaced deterministic linear ramp tie-breaking jitter with seeded random uniform microsecond jitter (`np.random.default_rng(42).uniform(0, 1e-6)`) in `load_event_stream_parquet`.
   - CLI entrypoint: `python -m sentinel_analysis.hawkes.calibration --data sentinel/data/processed/btcusdt_events_v2.parquet --seed 42`.
-- **Fitted Model Parameters (BTCUSDT Trade Flow):**
-  - **Optimizer Message:** `CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH` (Success: `True`)
-  - **Boundary Pinned:** `False` (Pinned params: `[]` — verified interior optimum)
-  - **Fitted $\hat{\mu}$:** `1.863358` (95% CI: `[1.793288, 1.933429]`)
-  - **Fitted $\hat{\alpha}$:** `99999.999988` (95% CI: `[99999.999968, 100000.000008]`)
-  - **Fitted $\hat{\beta}$:** `200000.000026` (95% CI: `[200000.000006, 200000.000045]`)
-  - **Branching Ratio ($n = \alpha/\beta$):** `0.5000` (Stationary)
-  - **Log-Likelihood:** `25158.9369` | **AIC:** `-50311.8739` | **BIC:** `-50292.3223`
+- **Empirical Calibration & Timestamp Resolution Finding:**
+  - **Empirical Data Limitation:** 2,283 out of 4,999 consecutive trade pairs (45.67%) share exact duplicate timestamps due to Binance REST API 1-millisecond truncation.
+  - **60-Restart Cold Multi-Start Benchmark (`ftol=1e-15`):** Running 60 cold log-uniform restarts ($\alpha, \beta \in [1, 10^8]$) with ultra-tight tolerance (`ftol=1e-15`) confirms single dominant peak regions for both jitter schemes:
+    - **Deterministic Linear Ramp Jitter:** Global peak at $\hat{\beta} = 4.3885 \times 10^5, \hat{\alpha} = 1.9950 \times 10^5, \hat{\mu} = 1.862679$ ($\log L = 25,426.13$, stationary ratio $n = 0.4546$, half-life $t_{1/2} = 1.58\,\mu\text{s}$). Top 10 basins cluster tightly in $\hat{\beta} \in [417\text{k}, 475\text{k}]$ within $1.5$ LL units.
+    - **Seeded Random Uniform Jitter (`seed=42`):** Global peak at $\hat{\beta} = 5.7302 \times 10^6, \hat{\alpha} = 2.5628 \times 10^6, \hat{\mu} = 1.869678$ ($\log L = 33,848.78$, stationary ratio $n = 0.4473$, half-life $t_{1/2} = 120.96\,\text{ns}$). Top 15 basins cluster in $\hat{\beta} \in [3.6\cdot 10^6, 6.4\cdot 10^6]$ with $t_{1/2} \in [108\text{ns}, 190\text{ns}]$.
+  - **Log-Likelihood Number Reconciliation:** The $+8,422.65$ LL delta between the global peak of Deterministic Jitter ($\log L = 25,426.13$) and Seeded Random Uniform Jitter ($\log L = 33,848.78$) is 100% caused by the tie-breaking scheme altering inter-event gaps between tied trades ($\Delta t = 1.0\,\mu\text{s} \to \text{mean } \sim 0.1-0.2\,\mu\text{s}$).
+  - **Baseline Rate Decoupling ($\hat{\mu} = N_{\text{untied}}/T$):** Mathematical and empirical proof shows that at high decay rate ($\beta \ge 10^5$), kernel decay between distinct millisecond clusters is zero ($e^{-\beta \Delta t} \approx 0$). The baseline rate decouples from $\alpha$ and branching ratio $n$, and equals the distinct millisecond event rate $\mu = N_{\text{untied}}/T = 2717 / 1458.1300 = 1.863345$ (matching fitted $\hat{\mu} = 1.863350$ within $4.1 \times 10^{-6}$).
+  - **Excitation Mass Analysis:** Excitation mass decomposition shows that **100.00% of the fitted self-excitation intensity contribution comes from within-tied-cluster micro-jittered pairs**, with $0.00\%$ coming from across-cluster pairs. The fitted decay half-life ($t_{1/2} = 120.96\,\text{ns}$) is a micro-jitter artifact 4 orders of magnitude below the 1-ms data resolution limit.
+  - **Key takeaway for future sessions:** Micro-jittering tied timestamps invents artificial sub-millisecond structure. Point process modeling on 1-ms truncated REST streams requires merging simultaneous events into compound events with multiplicity marks, or utilizing sub-millisecond WebSocket execution streams.
 - **Implemented Goodness-of-Fit Validation (`sentinel_analysis.hawkes.validation`):**
   - Implemented Time-Rescaling Theorem compensator transform $\tau_i = \int_{t_{i-1}}^{t_i} \hat{\lambda}(s) ds$.
   - Kolmogorov-Smirnov Test: $D = 0.126405$ ($p\text{-value} = 4.37 \times 10^{-70}$).
@@ -114,3 +116,25 @@ Repository scaffolding created. Rust workspace compiles (placeholder crate). Pyt
 - **Formatting & Linting:**
   - `black --check .` passed cleanly.
   - `ruff check .` passed with 0 warnings.
+
+---
+
+## Session 4 (2026-08-23)
+- **Built Rust Limit Order Book (LOB) Core (`engine/crates/core`):**
+  - Implemented `Order`, `Trade`, and `Side` core types using strict types (`u64` for quantities/timestamps, `i64` for integer tick prices).
+  - Implemented deterministic `OrderBook` using `BTreeMap<i64, VecDeque<Order>>` for price-time priority. 
+  - Supported aggressive limit orders (crossing the spread with partial/multiple fills) and resting unfilled quantities.
+  - Implemented robust `cancel_order` with `O(1)` ID lookup and queue pruning.
+- **Strict Error Handling & Validation:**
+  - Designed `BookError` enum to eliminate all `unwrap()`/`expect()` calls in production library code.
+  - Returns explicit variants like `InvalidPrice`, `InvalidQuantity`, `DuplicateOrderId`, `OrderNotFound`.
+- **Testing & Benchmarking:**
+  - Wrote deterministic hand-crafted test vectors ensuring FIFO time-priority inside price levels, partial fill processing, edge case invalid orders, and cancellation lifecycle.
+  - Added microsecond benchmark (`lob_benchmark.rs`) simulating 10,000 aggressive crossing orders against a book with 20,000 resting orders.
+- **Rust Validation Outputs:**
+  - `cargo test --all`: 7/7 unit tests passed.
+  - `cargo clippy --all-targets --all-features -- -D warnings`: 0 warnings.
+  - `cargo fmt --check`: Clean formatting.
+  - `cargo run --example lob_benchmark --release`: Insert/Match average latency measured at ~200 ns (median). (Mean is highly sensitive to OS noise/tail outliers; raw sample output is persisted to disk).
+- **Deviations from Spec:**
+  - No deviations. Built strictly as requested, limit orders only, zero unwrap library code.
