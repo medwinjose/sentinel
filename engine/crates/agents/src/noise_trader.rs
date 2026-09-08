@@ -31,12 +31,8 @@ impl NoiseTrader {
         }
     }
 
-    /// Simulates the next arrival and submits the order to the provided limit order book.
-    pub fn step<R: RngExt>(
-        &mut self,
-        rng: &mut R,
-        book: &mut OrderBook,
-    ) -> Result<Vec<Trade>, BookError> {
+    /// Generates the next order without submitting it.
+    pub fn generate_order<R: RngExt>(&mut self, rng: &mut R, book: &OrderBook) -> Order {
         // 1. Advance time using Hawkes simulator (seconds)
         let arrival_time = self.hawkes.next_arrival(rng);
         // Scale to microseconds for timestamp
@@ -70,7 +66,6 @@ impl NoiseTrader {
             }
         };
 
-        // 5. Submit order
         let order = Order {
             id: self.next_order_id,
             side,
@@ -80,6 +75,81 @@ impl NoiseTrader {
         };
         self.next_order_id += 1;
 
+        order
+    }
+
+    /// Simulates the next arrival and submits the order to the provided limit order book.
+    pub fn step<R: RngExt>(
+        &mut self,
+        rng: &mut R,
+        book: &mut OrderBook,
+    ) -> Result<Vec<Trade>, BookError> {
+        let order = self.generate_order(rng, book);
         book.add_limit_order(order)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    fn setup_agent() -> (NoiseTrader, StdRng) {
+        let hawkes = HawkesSimulator::new(1.0, 0.5, 1.5);
+        let agent = NoiseTrader::new(hawkes, 0.5, 0.2, 10, 50, 1);
+        let rng = StdRng::seed_from_u64(42);
+        (agent, rng)
+    }
+
+    #[test]
+    fn test_determinism() {
+        let (mut agent1, mut rng1) = setup_agent();
+        let (mut agent2, mut rng2) = setup_agent();
+
+        let book = OrderBook::new();
+
+        // 100 generated orders should be exactly identical
+        for _ in 0..100 {
+            let order1 = agent1.generate_order(&mut rng1, &book);
+            let order2 = agent2.generate_order(&mut rng2, &book);
+            assert_eq!(order1, order2, "Orders should be byte-for-byte identical");
+        }
+    }
+
+    #[test]
+    fn test_order_validity() {
+        let (mut agent, mut rng) = setup_agent();
+        let mut book = OrderBook::new();
+
+        for _ in 0..1000 {
+            let result = agent.step(&mut rng, &mut book);
+            // Should not panic and should not be a BookError (e.g. InvalidPrice/InvalidQuantity)
+            assert!(result.is_ok(), "Generated order was invalid");
+        }
+    }
+
+    #[test]
+    fn test_spread_crossing_produces_fill() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut book = OrderBook::new();
+
+        // Force an ask agent to be completely passive and always place an ask
+        let hawkes_ask = HawkesSimulator::new(1.0, 0.5, 1.5);
+        let mut agent_ask = NoiseTrader::new(hawkes_ask, 0.0, 0.0, 10, 50, 1000);
+
+        let trades1 = agent_ask.step(&mut rng, &mut book).unwrap();
+        assert!(trades1.is_empty(), "Passive order should not fill");
+        assert!(book.best_ask().is_some(), "Ask should be resting");
+
+        // Force a bid agent to be completely aggressive and always cross the spread
+        let hawkes_bid = HawkesSimulator::new(1.0, 0.5, 1.5);
+        let mut agent_bid = NoiseTrader::new(hawkes_bid, 1.0, 1.0, 10, 50, 1);
+
+        let trades2 = agent_bid.step(&mut rng, &mut book).unwrap();
+        assert!(
+            !trades2.is_empty(),
+            "Aggressive order crossing spread should produce a fill"
+        );
     }
 }
