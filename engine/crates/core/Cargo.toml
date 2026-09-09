@@ -7,3 +7,8 @@ edition = "2021"
 
 [dev-dependencies]
 rand = "0.10.2"
+criterion = "0.5"
+
+[[bench]]
+name = "lob_benchmark"
+harness = false
