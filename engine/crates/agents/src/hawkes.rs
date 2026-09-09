@@ -1,8 +1,9 @@
 /// Univariate Exponential Hawkes Process Simulator.
 ///
 /// **NOTE:** Session 3 found that the univariate exponential Hawkes process fails goodness-of-fit
-/// on real BTCUSDT order flow (KS D=0.126, Ljung-Box Q=2800, both p~0). This simulator is a
-/// structural stand-in for arrival timing, not a validated model of real crypto microstructure.
+/// on real BTCUSDT order flow (KS D=0.126, Ljung-Box Q=2800, both p~0), with a root cause of
+/// 45.67% timestamp degeneracy from Binance REST 1ms truncation. This simulator is a structural
+/// stand-in for arrival timing, not a validated model of real crypto microstructure.
 use rand::RngExt;
 
 pub struct HawkesSimulator {

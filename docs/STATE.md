@@ -32,3 +32,7 @@
 ## Open Decisions & Risks
 - **Empirical Model Validation:** Univariate 1D exponential Hawkes process fails i.i.d. exponential residual tests ($p < 0.001$) on empirical crypto trade flow due to buy/sell cross-excitation and power-law memory decay. Future calibration work may incorporate 2D (buy/sell) multivariate kernels or power-law decay.
 - **Determinism:** All calibration initializations and simulation routines use explicit, user-seeded random state.
+- **Session 4 Open Anomalies:**
+  - **Index-shift discrepancy:** 7417 vs 7407 observed in dataset sizing.
+  - **Latency Outliers:** Run 3 = 122,000 ns and Run 5 = 75,000 ns outliers measured during baseline LOB micro-benchmarking.
+  - **Cross-dataset reconciliation:** Unverified synchronization and reconciliation across datasets.
