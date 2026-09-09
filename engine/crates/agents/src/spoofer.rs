@@ -102,14 +102,14 @@ impl Spoofer {
                 // cross the spread or place at best bid
                 book.best_ask().unwrap_or(best_bid)
             } else {
-                best_bid - self.distance_from_touch
+                best_bid.saturating_sub(self.distance_from_touch)
             }
         } else {
             let best_ask = book.best_ask().unwrap_or(100_100);
             if accidental {
                 book.best_bid().unwrap_or(best_ask)
             } else {
-                best_ask + self.distance_from_touch
+                best_ask.saturating_add(self.distance_from_touch)
             }
         };
 

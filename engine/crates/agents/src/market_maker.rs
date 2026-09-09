@@ -34,6 +34,12 @@ pub struct AvellanedaStoikovMM {
 
     // P&L Tracking
     cash: f64,
+    // Adverse Selection Tracking
+    adverse_selection_cost: f64,
+
+    // Trust Modification
+    trust_modifier_strength: f64,
+    current_market_trust: f64,
 
     // Action queue for simultaneous cancel and replace
     action_queue: std::collections::VecDeque<AgentAction>,
@@ -61,16 +67,32 @@ impl AvellanedaStoikovMM {
             refresh_interval,
             next_action_time: 0.0,
             cash: 0.0,
+            adverse_selection_cost: 0.0,
+            trust_modifier_strength: 0.0,
+            current_market_trust: 1.0,
             action_queue: std::collections::VecDeque::new(),
         }
     }
 
+    pub fn set_trust_modifier(&mut self, strength: f64) {
+        self.trust_modifier_strength = strength;
+    }
+
+    pub fn update_market_trust(&mut self, trust: f64) {
+        self.current_market_trust = trust;
+    }
+
     /// Update the MM with a fill to track inventory and cash.
-    pub fn on_fill(&mut self, side: Side, price: i64, _quantity: u64) {
-        // As a market maker, our order was resting.
-        // If our Bid filled, we bought (inventory + 1), cash decreases.
-        // If our Ask filled, we sold (inventory - 1), cash increases.
-        // For simplicity, we assume qty=1.
+    pub fn on_fill(&mut self, side: Side, price: i64, _quantity: u64, current_mid: f64) {
+        // Adverse selection cost: the immediate markout against the MM
+        // If MM bought (Bid), and current_mid < price, MM lost money instantly (adverse)
+        // If MM sold (Ask), and current_mid > price, MM lost money instantly (adverse)
+        let markout = match side {
+            Side::Bid => price as f64 - current_mid,
+            Side::Ask => current_mid - price as f64,
+        };
+        self.adverse_selection_cost += markout;
+
         match side {
             Side::Bid => {
                 self.inventory += 1;
@@ -104,6 +126,10 @@ impl AvellanedaStoikovMM {
         self.cash + (self.inventory as f64 * current_mid)
     }
 
+    pub fn get_adverse_selection_cost(&self) -> f64 {
+        self.adverse_selection_cost
+    }
+
     pub fn next_event_time(&self) -> f64 {
         self.next_action_time
     }
@@ -120,17 +146,26 @@ impl AvellanedaStoikovMM {
 
         let mid = self.last_mid?;
 
+        // Trust modification mechanism:
+        // We scale the risk aversion (gamma) based on market trust.
+        // If the market is highly toxic/spoofy (trust < 1.0), effective_gamma increases.
+        // This causes the MM to widen its spread and skew its reservation price more aggressively
+        // to protect against adverse selection.
+        let effective_gamma = self.gamma
+            * (1.0 + self.trust_modifier_strength * (1.0 - self.current_market_trust).max(0.0));
+
         // Time remaining
         let t_remaining = (self.end_time - current_time).max(0.001);
 
         // Calculate A-S params
-        let r = mid - (self.inventory as f64 * self.gamma * self.variance_estimate * t_remaining);
+        let r =
+            mid - (self.inventory as f64 * effective_gamma * self.variance_estimate * t_remaining);
 
         // optimal spread
         // To prevent log(0) or negative inside ln
-        let ln_term = (1.0 + self.gamma / self.kappa).ln();
-        let delta =
-            self.gamma * self.variance_estimate * t_remaining + (2.0 / self.gamma) * ln_term;
+        let ln_term = (1.0 + effective_gamma / self.kappa).ln();
+        let delta = effective_gamma * self.variance_estimate * t_remaining
+            + (2.0 / effective_gamma) * ln_term;
 
         // Half spread on each side of the reservation price
         let bid_price = (r - delta / 2.0).round() as i64;
@@ -138,7 +173,7 @@ impl AvellanedaStoikovMM {
 
         // Ensure bid < ask
         if bid_price >= ask_price {
-            ask_price = bid_price + 1;
+            ask_price = bid_price.saturating_add(1);
         }
 
         let timestamp = (current_time * 1_000_000.0) as u64;
