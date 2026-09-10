@@ -18,6 +18,7 @@ fn derive_rngs(master_seed: u64) -> (StdRng, StdRng, StdRng) {
     (noise_rng, informed_rng, spoofer_rng)
 }
 
+#[allow(dead_code)]
 struct SimulationResult {
     pnl: f64,
     inventory: i64,
@@ -120,7 +121,7 @@ fn run_ecology(seed: u64, trust_modifier_strength: f64, steps: usize) -> Simulat
 
                     let old_bid = book.best_bid();
 
-                    let result = book.add_limit_order(order.clone());
+                    let result = book.add_limit_order(order);
 
                     if let Ok(matches) = result {
                         for t in matches {

@@ -125,7 +125,7 @@ fn run_ecology(seed: u64, trust_modifier_strength: f64, steps: usize) -> Simulat
                     let old_bid = book.best_bid();
                     let _old_ask = book.best_ask();
 
-                    let result = book.add_limit_order(order.clone());
+                    let result = book.add_limit_order(order);
 
                     if let Ok(matches) = result {
                         for t in matches {

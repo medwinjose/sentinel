@@ -109,11 +109,14 @@ impl AvellanedaStoikovMM {
 
     pub fn on_tick(&mut self, current_mid: f64) {
         if let Some(last) = self.last_mid {
-            let ret = current_mid - last;
+            // Clamp ret to prevent explosive variance feedback loops
+            let ret = (current_mid - last).clamp(-1000.0, 1000.0);
             let sq_ret = ret * ret;
             // EWMA update for variance
             self.variance_estimate =
                 (1.0 - self.ema_alpha) * self.variance_estimate + self.ema_alpha * sq_ret;
+            // Hard clamp variance to ensure numerical stability in AS model
+            self.variance_estimate = self.variance_estimate.clamp(0.0001, 10_000.0);
         }
         self.last_mid = Some(current_mid);
     }
@@ -153,19 +156,23 @@ impl AvellanedaStoikovMM {
         // to protect against adverse selection.
         let effective_gamma = self.gamma
             * (1.0 + self.trust_modifier_strength * (1.0 - self.current_market_trust).max(0.0));
+        let effective_gamma = effective_gamma.max(0.001); // Clamp away from zero
 
         // Time remaining
         let t_remaining = (self.end_time - current_time).max(0.001);
 
         // Calculate A-S params
-        let r =
-            mid - (self.inventory as f64 * effective_gamma * self.variance_estimate * t_remaining);
+        let inventory_shift =
+            self.inventory as f64 * effective_gamma * self.variance_estimate * t_remaining;
+        let inventory_shift = inventory_shift.clamp(-50_000.0, 50_000.0); // Clamp shift
+        let r = mid - inventory_shift;
 
         // optimal spread
         // To prevent log(0) or negative inside ln
         let ln_term = (1.0 + effective_gamma / self.kappa).ln();
         let delta = effective_gamma * self.variance_estimate * t_remaining
             + (2.0 / effective_gamma) * ln_term;
+        let delta = delta.clamp(1.0, 50_000.0); // Clamp spread
 
         // Half spread on each side of the reservation price
         let bid_price = (r - delta / 2.0).round() as i64;
