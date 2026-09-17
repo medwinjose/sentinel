@@ -53,10 +53,11 @@ impl InformedTrader {
     }
 
     pub fn next_event_time<R: RngExt>(&mut self, rng: &mut R) -> f64 {
-        if self.next_arrival_time.is_none() {
-            self.next_arrival_time = Some(self.hawkes.next_arrival(rng));
-        }
-        self.next_arrival_time.unwrap()
+        let t = self
+            .next_arrival_time
+            .unwrap_or_else(|| self.hawkes.next_arrival(rng));
+        self.next_arrival_time = Some(t);
+        t
     }
 
     /// Generates the next action. Returns `None` if it decides not to trade (signal below threshold)

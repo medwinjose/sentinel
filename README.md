@@ -51,4 +51,13 @@ cd monitoring
 docker-compose up -d
 ```
 
-*(Note: The monitoring stack is currently a scaffold with minimal configuration. Scrape targets and metric dashboards will be wired in future sessions as simulation components emit telemetry.)*
+To run the simulation with Prometheus metrics export enabled:
+
+```bash
+cd engine
+cargo run --features metrics
+```
+
+This will expose a `/metrics` endpoint on port `9100`. Prometheus is configured to scrape this endpoint, and Grafana is provisioned with a "Sentinel Simulation" dashboard to visualise the live telemetry.
+
+Access Grafana at [http://localhost:3000](http://localhost:3000) (default login: admin/admin).

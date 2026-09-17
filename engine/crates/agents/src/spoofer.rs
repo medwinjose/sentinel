@@ -57,11 +57,9 @@ impl Spoofer {
     }
 
     pub fn next_event_time<R: RngExt>(&mut self, rng: &mut R) -> f64 {
-        if self.next_arrival_time.is_none() {
-            self.next_arrival_time = Some(self.hawkes.next_arrival(rng));
-        }
-
-        let arrival_time = self.next_arrival_time.unwrap();
+        let arrival_time = *self
+            .next_arrival_time
+            .get_or_insert_with(|| self.hawkes.next_arrival(rng));
 
         if let Some(&(cancel_time, _)) = self.cancel_queue.front() {
             if cancel_time < arrival_time {
@@ -131,7 +129,7 @@ impl Spoofer {
         // or find the insertion index.
         let idx = self
             .cancel_queue
-            .binary_search_by(|(t, _)| t.partial_cmp(&cancel_time).unwrap())
+            .binary_search_by(|(t, _)| t.total_cmp(&cancel_time))
             .unwrap_or_else(|x| x);
         self.cancel_queue.insert(idx, (cancel_time, order.id));
 
