@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build_and_test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+        
+    - name: Rustfmt Check
+      working-directory: ./engine
+      run: cargo fmt --check
+      
+    - name: Clippy (Default)
+      working-directory: ./engine
+      run: cargo clippy --workspace --all-targets -- -D warnings
+      
+    - name: Clippy (Metrics)
+      working-directory: ./engine
+      run: cargo clippy --workspace --all-targets --features sentinel-agents/metrics -- -D warnings
+      
+    - name: Run Tests (Default)
+      working-directory: ./engine
+      run: cargo test --workspace
+      
+    - name: Run Tests (Metrics)
+      working-directory: ./engine
+      run: cargo test --workspace --features sentinel-agents/metrics
