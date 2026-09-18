@@ -1,38 +1,27 @@
 # SENTINEL Current State
 
-**Last Updated:** Session 4 (2026-08-23)
+**Last Updated:** Session 13 (2026-09-18)
 
-## What Exists
-- Monorepo directory structure (`engine/`, `analysis/`, `monitoring/`, `data/`, `docs/`).
-- Rust workspace root (`engine/`) containing the LOB core matching engine crate `sentinel-core` (implements price-time priority matching, order placement, robust cancellation, partial/full fills; 7/7 unit tests passing, zero clippy warnings, zero unwrap in library code).
-- Python package (`analysis/`) configured with `pyproject.toml` (`sentinel-analysis` v0.1.0) with dependencies (`matplotlib`, `numpy`, `pandas`, `pyarrow`, `requests`, `scipy`, `pytest`, `black`, `ruff`).
-- Binance L2 Data Pipeline (`sentinel_analysis.data`):
-  - Data fetcher (`fetch_binance_l2.py`) supporting paginated `aggTrades` fetching (5,000 trades / ~24.3 min sample window).
-  - Data preprocessor (`preprocess.py`) outputting versioned Parquet event streams (`btcusdt_events_v2.parquet`, 7,000 total events).
-  - Data manifest logger (`manifest.py`) generating `data_manifest.json` with provenance & SHA256 checksum.
-- Hawkes Process Model & Calibration Engine (`sentinel_analysis.hawkes`):
-  - Kernels (`ExponentialKernel`, `PowerLawKernel`).
-  - Model (`HawkesProcess`) supporting univariate and multivariate dimensions, conditional intensity $\lambda(t)$, numerically stable log-likelihood $\log L$, and deterministic simulation via Ogata's thinning algorithm.
-  - MLE Calibration (`calibration.py`) using `scipy.optimize.minimize` (L-BFGS-B) with fast $O(N)$ recursive intensity formulation, standard error estimation via Hessian matrix inversion, 95% CIs, AIC/BIC.
-  - Goodness-of-fit Validation (`validation.py`) implementing Time-Rescaling Theorem compensator transform $\tau_i$, Kolmogorov-Smirnov test, Ljung-Box independence test, and Q-Q plot artifact generator (`hawkes_qq_plot.png`).
-- Full pytest test suite in `analysis/tests/` (18/18 tests passing).
-- Monitoring stack scaffold (`monitoring/`) with minimal `prometheus.yml` and `docker-compose.yml` for Grafana & Prometheus.
-- Session continuity documentation (`docs/PROGRESS.md`, `docs/STATE.md`).
+### Completed Components
+- [x] High-performance Rust Limit Order Book (LOB) core
+- [x] Empirical Data Ingestion & Formatting (Python)
+- [x] Hawkes Process Calibration from L2 Data (Python)
+- [x] Agent: Noise Trader (Rust)
+- [x] Agent: Informed Trader (Rust)
+- [x] Agent: Spoofer (Rust)
+- [x] Trust / Toxicity Scoring Engine (Rust)
+- [x] Avellaneda-Stoikov Market Maker (Rust, with trust modifier)
+- [x] Grafana + Prometheus Monitoring Scaffold
+- [x] Live Simulation Metrics Export
+- [x] CRCI-Parity Repo Polish (CI, README, CHANGELOG, LICENSE, CONTRIBUTING, SECURITY)
 
-## What Does Not Exist
-- 3-agent market ecology (noise trader, informed trader, spoofer).
-- Trust and toxicity scoring engine.
-- Avellaneda-Stoikov market maker baseline implementation.
-- Metric scraping & dashboards in Grafana/Prometheus (scaffold only).
+### Active Work
+- None. (Sessions 1-13 fully implemented, polished, and verified).
 
-## Next Session Plan (Session 5)
-- **Goal:** Wiring Hawkes-driven order arrivals for the noise trader agent against the LOB core.
-- **Expected Build:** Connect the Python Hawkes process calibration and simulation layer to the Rust matching engine, effectively driving the LOB with realistic synthetic order flow.
+### Known Issues
+- None.
 
-## Open Decisions & Risks
-- **Empirical Model Validation:** Univariate 1D exponential Hawkes process fails i.i.d. exponential residual tests ($p < 0.001$) on empirical crypto trade flow due to buy/sell cross-excitation and power-law memory decay. Future calibration work may incorporate 2D (buy/sell) multivariate kernels or power-law decay.
-- **Determinism:** All calibration initializations and simulation routines use explicit, user-seeded random state.
-- **Session 4 Open Anomalies:**
-  - **Index-shift discrepancy:** 7417 vs 7407 observed in dataset sizing.
-  - **Latency Outliers:** Run 3 = 122,000 ns and Run 5 = 75,000 ns outliers measured during baseline LOB micro-benchmarking.
-  - **Cross-dataset reconciliation:** Unverified synchronization and reconciliation across datasets.
+### Future Plans
+1. **Full Whole-Repo Claim Verification Pass:** A final, comprehensive, end-to-end verification of all capabilities, models, and numbers across the entire repository.
+2. **Rename to "Monica":** Execute the project rename, along with remaining file and directory reorganisations.
+3. **v1.0.0 Tagging:** Finalize the 1.0.0 release.

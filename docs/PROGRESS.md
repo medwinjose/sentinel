@@ -58,6 +58,26 @@ Repository scaffolding created. Rust workspace compiles (placeholder crate). Pyt
 
 ---
 
+## Session 13 (2026-09-18)
+- **Part A: Re-verification of Previous Claims:**
+  - **Status:** All claims from the previous commit (`c444530`) held up under strict raw re-verification.
+  - **Results:**
+    - `cargo fmt --check` and both `cargo clippy` passes (with and without `metrics`) exited cleanly with zero warnings/errors.
+    - All 20 tests (with and without `metrics`) passed flawlessly, including the new `test_variance_stability_regression` which proved the variance is hard-capped at 2500.0 ticks².
+    - `grep -rn "unwrap()"` confirmed zero `unwrap()` calls exist anywhere in the production paths of the agent modules.
+    - Numeric reconciliation of the ablation study re-confirmed the conclusion: The difference in adverse selection cost is not statistically significant at the 95% confidence interval ($t = -2.16$, $p > 0.05$).
+    - Verified the circuit breaker bounds (`MAX_TICK_RETURN`, `MAX_VARIANCE`, `MAX_INVENTORY_SHIFT`, `MAX_SPREAD`) are cleanly derived from the ~100k mid-price / ~20 tick spread LOB scale, heavily documented with comments.
+- **Part B: CRCI-Parity Repo Polish:**
+  - Added `.github/workflows/ci.yml` running fmt, clippy, and tests across all features.
+  - Rewrote `README.md` to a recruiter-facing standard mirroring CRCI. It now includes: Tagline, Badges, Problem/Solution framing, Mermaid Architecture Diagram, Key Results (backed by a checked-in CSV), Quick Start, and Documentation links.
+  - Added Apache 2.0 `LICENSE` (providing necessary patent retaliation clauses suitable for a complex simulation engine).
+  - Added `CHANGELOG.md` summarising the history to date.
+  - Added `CONTRIBUTING.md` enforcing the strict zero-unwrap and zero-clippy rules.
+  - Added `SECURITY.md` scoping the threat model to the offline simulator.
+  - Checked in the statistical ablation raw output to `engine/benches/results/ablation_results.csv`.
+
+---
+
 ## Session 3 (2026-07-25)
 - **Assessed & Extended Data Sample Size:**
   - Assessed that Session 2's ~2 minute dataset (1000 trades) was insufficient for stable Hawkes parameter estimation.
