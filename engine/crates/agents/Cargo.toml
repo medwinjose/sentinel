@@ -11,3 +11,6 @@ sentinel-core = { path = "../core" }
 rand = "0.10.2"
 prometheus = { version = "0.13", optional = true }
 tiny_http = { version = "0.12", optional = true }
+
+[dev-dependencies]
+rayon = "1.10"

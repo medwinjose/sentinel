@@ -570,6 +570,7 @@ version = "0.1.0"
 dependencies = [
  "prometheus",
  "rand",
+ "rayon",
  "sentinel-core",
  "tiny_http",
 ]
